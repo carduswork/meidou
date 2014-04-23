@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
-import os,sqlite3,pythoncom
-from win32com.shell import shell, shellcon
+import os,sqlite3,pythoncom,urllib2,urllib
+#from win32com.shell import shell, shellcon
+from winlib import shell, shellcon
 COOKIE = {}
+true = True
+null = None
+false = False
+
 def get_special_folder_path(path_name):
     for maybe in """
         CSIDL_COMMON_STARTMENU CSIDL_STARTMENU CSIDL_COMMON_APPDATA
@@ -107,6 +112,44 @@ def getcachecookies(host):
 
     return COOKIE
 
-        
+def getTiebaCount():
+    countGroup = []
+    num = 0#;exits = 1
+    baidu_cookie = getcachecookies('.baidu.com')
+    for i in baidu_cookie:
+        url = 'http://tieba.baidu.com/f/user/json_userinfo'
+        header = {
+                'Cookie': baidu_cookie[i],
+                'Referer': 'http://tieba.baidu.com/',
+                'User-Agent': 'User-Agent:Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.72 Safari/537.36',
+                }
+        req = urllib2.Request(url,headers=header)
+        res = urllib2.urlopen(req,timeout = 3).read()
+        #print res
+        exec('data='+res)
+        if data['no'] != 0:
+            print u'cookies 错误'
+            del baidu_cookie[i]
+            break
+        else:
+            if data['data']['is_login']:
+                print i,u'cookie 有效'
+                '''
+                for t in countGroup:
+                    print data['data']['user_name_weak'],t[0]
+                    if data['data']['user_name_weak'] == t[0]:
+                        exits = 0
+                ''' 
+                data2 = []
+                data2.append(data['data']['user_name_weak'])
+                data2.append('http://tb.himg.baidu.com/sys/portrait/item/'+data['data']['user_portrait'])
+                data2.append(baidu_cookie[i])
+                countGroup.append(data2)
+                num += 1
+    result = []
+    [result.append(i) for i in countGroup if not i in result]
+    return result
+
 if __name__=="__main__":
-    print getcachecookies('.baidu.com')
+    #print getcachecookies('.baidu.com')
+    print getTiebaCount()

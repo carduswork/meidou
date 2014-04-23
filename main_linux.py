@@ -4,7 +4,7 @@ from PyQt4 import QtCore, QtGui, Qt, phonon
 from configobj import ConfigObj
 import os,sys,urllib2,urllib,microphone,time,googlevoice,re
 import msc_wrapper,threading
-
+import optionMenu
 true = True
 null = None
 false = False
@@ -92,6 +92,14 @@ class Nvpu(QtGui.QWidget):
         #self.NewSession()
         #msc_wrapper.regStart()
 
+        self.optionMenuLOCK = 1
+        self.background = ExtenWindow()
+
+        self.msgThread = msgThread()
+        #self.msgThread.setMsgWindow(self.msgWindow)
+        
+        
+        
     def window_attribute(self):
         if os.name == 'nt':
             #隐藏窗口边框、背景、任务栏
@@ -113,7 +121,14 @@ class Nvpu(QtGui.QWidget):
 
     def setMsgWindow(self,msgWindow):
         self.msgWindow = msgWindow
-        
+
+    def optionChoice(self,option):
+        #option = [['cancel_normal.png','cancel_normal.png','msg'],[None,None,'msg']]
+        OptionMenu = optionMenu.optionMenu(self,option=option)
+        if OptionMenu.exec_():pass
+        self.optionMenuResult = OptionMenu.result()
+        self.optionMenuLOCK = 0
+
     def message(self,msg,msgtype = None,timeout = 0):
         if msgtype == 'mark':
             if timeout:
@@ -467,7 +482,17 @@ class Nvpu(QtGui.QWidget):
             time.sleep(0.1)
             self.ChangeS.emit("shell//D1.png")'''
 
-
+class ExtenWindow(QtGui.QMainWindow):
+    def __init__(self,parent=None):
+        super(ExtenWindow,self).__init__(parent)
+        self.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowSystemMenuHint)
+        #self.setStyleSheet('''background-color:cyan;''')
+        self.setStyleSheet('color:rgba(127,127,127,0.5);')
+        self.setWindowOpacity(0.5)
+        desktop = QtGui.QApplication.desktop()
+        rect = desktop.availableGeometry()
+        self.setGeometry(rect)
+        
     
 #图标类重写
 class labelBtn(QtGui.QLabel):
@@ -514,6 +539,10 @@ class labelBtn(QtGui.QLabel):
 
 #仿ubuntu下的气泡提示，左击进入提示，右击关闭
 class msgWindow(QtGui.QWidget):
+    msgSignal = QtCore.pyqtSignal(str,str,str)
+    chatSignal = QtCore.pyqtSignal(str,str,str)
+    optionMenuSignal = QtCore.pyqtSignal(list)
+
     def __init__(self, parent=None):
         super(msgWindow,self).__init__(parent)
         self.btn_min=labelBtn("background")
@@ -574,6 +603,11 @@ class msgWindow(QtGui.QWidget):
         
         self.msg_queue = []
         self.setGeometry(self.dwidth-40-self.pix.size().width(),100,self.pix.size().width(),self.pix.size().height())
+
+    def setMainWindow(self,MianWindow):
+        self.nvpu = MianWindow
+        self.chatSignal.connect(self.nvpu.message)
+        self.optionMenuSignal.connect(self.nvpu.optionChoice)
         
     def timeout(self):
         self.setWindowOpacity(0.4)
@@ -591,8 +625,11 @@ class msgWindow(QtGui.QWidget):
             
     def mousePressEvent(self,event):
         if event.button() == QtCore.Qt.LeftButton:
-            import webbrowser
-            webbrowser.open("http://tieba.baidu.com/home/msg?un=gph159821&fr=home")
+            if self.nvpu.sys_dict['baidu']:
+                print self.nvpu.sys_dict['baidu']
+                import webbrowser
+                webbrowser.open("http://tieba.baidu.com/home/msg?un="+self.nvpu.sys_dict['baidu']+"&fr=home")
+                self.chatSignal.emit(u'打开贴吧回复ing........','','')
             self.hide()
         if event.button() == QtCore.Qt.RightButton:
             self.hide()
@@ -631,6 +668,7 @@ class mainThread(QtCore.QThread):
     '''
     msgSignal = QtCore.pyqtSignal(str,str,str)
     chatSignal = QtCore.pyqtSignal(str,str,str)
+    optionMenuSignal = QtCore.pyqtSignal(list)
     def __init__(self,parent=None):
         super(mainThread,self).__init__(parent)
 
@@ -638,66 +676,54 @@ class mainThread(QtCore.QThread):
         self.msgWindow = MsgWindow
         self.msgSignal.connect(self.msgWindow.showMsg)
 
-    def setMianWindow(self,MianWindow):
+    def setMainWindow(self,MianWindow):
         self.nvpu = MianWindow
         self.chatSignal.connect(self.nvpu.message)
+        self.optionMenuSignal.connect(self.nvpu.optionChoice)
         
     def run(self):
         if not "firstboot" in self.nvpu.sys_dict:
             #self.msgSignal.emit(u'第一次开启，初始化开始','Start','')
             self.chatSignal.emit(u'第一次开启，初始化开始','mark','')
-
+            self.chatSignal.emit(u'住在你电脑里面了哦>_<','','')
+        #if 1:
             #读取贴吧Cookies
-            
             if os.name == "nt":
                 try:
                     import GetCacheCookies
-                    baidu_cookie = GetCacheCookies.getcachecookies('.baidu.com')
+                    baidu_cookie = GetCacheCookies.getTiebaCount()
                 except:pass  
             if baidu_cookie:
+                self.chatSignal.emit(u'读取到了百度账号','mark','')
+                option = []
                 for i in baidu_cookie:
-                    url = 'http://tieba.baidu.com/f/user/json_userinfo'
-                    header = {
-                            'Cookie': baidu_cookie[i],
-                            'Referer': 'http://tieba.baidu.com/',
-                            'User-Agent': 'User-Agent:Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.72 Safari/537.36',
-                            }
-                    req = urllib2.Request(url,headers=header)
-                    res = urllib2.urlopen(req,timeout = 3).read()
-                    exec('data='+res)
-                    print res
-                    if data['no'] != 0:
-                        print u'cookies 错误'
-                        del baidu_cookie[i]
-                    else:
-                        print i,u'cookie 有效'
-                        print data['data']['session_id']
-                        print data['data']['user_portrait']
-                        print data['data']['user_name_weak']
-                        print data['data']['user_is_verify']
-                        print data['data']['is_login']
-                        print data['data']['weak_pwd']
-                        print data['data']['is_half_user']
-                        print data['data']['source_id']
-                        print data['data']['no_un']
-                        print data['data']['mobilephone']
-                        print data['data']['email']
-                        print data['data']['open_uid']
-                        print data['data']['client_msg_count']
-                        print data['data']['user_open_space']
-            if baidu_cookie:
-                pass
+                    png = urllib.urlretrieve(i[1],'./cache/'+i[0]+'.jpg')
+                    option.append([None,'./cache/'+i[0]+'.jpg',i[0]])
+
+                print option
+                #self.nvpu.background.show()
+                self.chatSignal.emit(u'快选一下你的主账号啦，我会提醒你新消息的','','')
+                #option = [['cancel_normal.png','cancel_normal.png','msg'],[None,None,'msg']]
+                self.optionMenuSignal.emit(option)
+                self.chatSignal.emit(u'','mark','')
+                while self.nvpu.optionMenuLOCK:pass
+                self.nvpu.optionMenuLOCK = 1
+                #self.nvpu.background.hide()
 
 
+                self.chatSignal.emit(u'选择了'+baidu_cookie[self.nvpu.optionMenuResult][0]+'哦','','')
+                print baidu_cookie[self.nvpu.optionMenuResult]
 
 
+                self.nvpu.sys_dict['baidu'] = baidu_cookie[self.nvpu.optionMenuResult][0]
+                self.nvpu.sys_dict['baiducookie'] = baidu_cookie[self.nvpu.optionMenuResult][2]
 
-
-
-
-
+        if self.nvpu.sys_dict['baiducookie']:
+            self.nvpu.msgThread.setbaiducookie(self.nvpu.sys_dict['baiducookie'])
+            self.nvpu.msgThread.start()
 
             
+
 #人物对话框        
 class balloon(QtGui.QWidget):
     def __init__(self, parent=None):
@@ -811,7 +837,9 @@ class balloon(QtGui.QWidget):
             global Flat
             Flat = 1
             self.dragPosition = event.globalPos() - self.frameGeometry().topLeft()
-
+        if event.button() == QtCore.Qt.LeftButton:
+            self.hide()
+            
     def mouseMoveEvent(self,event):
         print 'mouseMoveEvent'
         self.mouse_call = time.time()
@@ -832,18 +860,18 @@ class msgThread(QtCore.QThread):
     msgSignal = QtCore.pyqtSignal(str,str,str)
     def __init__(self,parent=None):
         super(msgThread,self).__init__(parent)
-
-        #http://tieba.baidu.com/f/user/json_userinfo
-        #http://tb.himg.baidu.com/sys/portrait/item/894d6770683135393832317d21
-        
+   
     def setMsgWindow(self,MsgWindow):
         self.msgWindow = MsgWindow
         self.msgSignal.connect(self.msgWindow.showMsg)
+
+    def setbaiducookie(self,cookie):
+        self.baiducookie = cookie
         
     def tiebamsg(self):
         msg = ''
         header = {
-                'Cookie': 'BAIDUID=74AAE03D9A0B02CC7AACC4E092EE1583:FG=1; BAIDU_WISE_UID=wapp_1393159513840_622; BDUSS=ndlTWpIcXpPZFJ1SUdMMGZTdXYtcmJPTWhHUDRJVFkzOTZKeFRualh0bGVlakZUQVFBQUFBJCQAAAAAAAAAAAEAAACJTX0hZ3BoMTU5ODIxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF7tCVNe7QlTb; SSUDB=ndlTWpIcXpPZFJ1SUdMMGZTdXYtcmJPTWhHUDRJVFkzOTZKeFRualh0bGVlakZUQVFBQUFBJCQAAAAAAAAAAAEAAACJTX0hZ3BoMTU5ODIxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF7tCVNe7QlTb; locale=zh; BDRCVFR[YG-Oj537bb0]=mk3SLVN4HKm; BDRCVFR[feWj1Vr5u3D]=I67x6TjHwwYf0; BDRCVFR[eYjbPwSqvSs]=mk3SLVN4HKm; IM_=1; cflag=65535%3A1; H_PS_PSSID=5329_1453_5223_4264_5567_4759_5516',
+                'Cookie': self.baiducookie,#'BAIDUID=74AAE03D9A0B02CC7AACC4E092EE1583:FG=1; BAIDU_WISE_UID=wapp_1393159513840_622; BDUSS=ndlTWpIcXpPZFJ1SUdMMGZTdXYtcmJPTWhHUDRJVFkzOTZKeFRualh0bGVlakZUQVFBQUFBJCQAAAAAAAAAAAEAAACJTX0hZ3BoMTU5ODIxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF7tCVNe7QlTb; SSUDB=ndlTWpIcXpPZFJ1SUdMMGZTdXYtcmJPTWhHUDRJVFkzOTZKeFRualh0bGVlakZUQVFBQUFBJCQAAAAAAAAAAAEAAACJTX0hZ3BoMTU5ODIxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF7tCVNe7QlTb; locale=zh; BDRCVFR[YG-Oj537bb0]=mk3SLVN4HKm; BDRCVFR[feWj1Vr5u3D]=I67x6TjHwwYf0; BDRCVFR[eYjbPwSqvSs]=mk3SLVN4HKm; IM_=1; cflag=65535%3A1; H_PS_PSSID=5329_1453_5223_4264_5567_4759_5516',
                 'Referer': 'http://tieba.baidu.com/',
                 'User-Agent': 'User-Agent:Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/28.0.1500.72 Safari/537.36',
                 }
@@ -878,12 +906,11 @@ class msgThread(QtCore.QThread):
 
     def run(self):
         while 1:
-            #if 1:
             try:
                 msg = self.tiebamsg()
                 if msg:self.msgSignal.emit(msg.decode('utf-8'),u'贴吧消息','')
             except Exception,ex:print ex
-            time.sleep(20)
+            time.sleep(30)
 
 #语音识别部分-----------------------------------------------------------------------
 class speech_recognize(QtCore.QThread):
@@ -959,9 +986,9 @@ class Application(object):
         self.nvpu.setballoon(self.balloon)
 
         self.msgWindow = msgWindow()
+        self.msgWindow.setMainWindow(self.nvpu)
         self.nvpu.setMsgWindow(self.msgWindow)
-
-
+        self.nvpu.msgThread.setMsgWindow(self.msgWindow)
 
 
             
@@ -972,14 +999,16 @@ class Application(object):
         #self.nvpu.message('test')
         #self.nvpu.message('test','mark')
 
-        self.msgThread = msgThread()
-        self.msgThread.setMsgWindow(self.msgWindow)
-        self.msgThread.start()
+
 
         self.MainThread = mainThread()
         self.MainThread.setMsgWindow(self.msgWindow)
-        self.MainThread.setMianWindow(self.nvpu)
+        self.MainThread.setMainWindow(self.nvpu)
         self.MainThread.start()
+
+
+
+        #self.nvpu.testOptionMenu()
         
         #进入事件循环
         self.KeyMouseMonitor()
